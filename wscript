@@ -15,7 +15,7 @@ def options(opt):
 header_files = ['functable.h', 'memory_op.h']
 c_files = ['functable.c', 'memory_op.c', 'attach.c']
 
-requirements = [ 'mach-o/loader.h' ]
+requirements = [ 'mach-o/loader.h', 'mach/mach.h', 'spawn.h' ]
 
 def configure(conf):
     conf.load('compiler_c')
