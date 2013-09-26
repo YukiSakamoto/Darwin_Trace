@@ -13,7 +13,7 @@ def options(opt):
     opt.load('compiler_c')
 
 header_files = ['tracer.h', 'functable.h', 'memory_op.h']
-c_files = ['functable.c', 'memory_op.c', 'attach.c']
+c_files = ['functable.c', 'memory_op.c', 'tracer.c']
 
 requirements = [ 'mach-o/loader.h', 'mach/mach.h', 'spawn.h' ]
 

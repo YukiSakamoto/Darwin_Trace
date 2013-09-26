@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/ptrace.h>
+#include <dirent.h>
 #include <errno.h>
 
 /* Mach Port related */
@@ -20,16 +21,8 @@
 #include "functable.h"
 
 extern int errno;
-
 #define RESET_ERROR (errno=0)
 #define ERROR_OCCURED (errno!=0)
-
-
-#ifdef debug_mode
-#	define debug_printf(...)	printf("[[DebugPrint]]   ");printf(__VA_ARGS__)
-#else
-#	define debug_printf(...)
-#endif
 
 char *function_unknown = "UnknownFunction";
 
@@ -319,7 +312,7 @@ void debugger_proc(pid_t child_proc, struct execute_context *ctx)
 			qsort(psymbol_table, nsym, sizeof(struct symbol_info), symbolinfo_comp);
 
 			/* XXX for debugging  */
-			/*display_symbol_table(psymbol_table, nsym);*/
+			/*display_symbol_table(psymbol_table, nsym); */
 
 			/* code analysys */
 			map_binary(args[0], &bininfo);
@@ -408,15 +401,101 @@ unsigned int lookup_optnum(char *str)
     return -1;
 }
 
+
+/* check if file (passed as basename) exists in dirpath
+ * If it is found, this function will return the fullpath, 
+ * but otherwise NULL
+ */
+char *lookup_file(char *dirpath, char *basename)
+{
+    DIR *dir;
+    struct dirent *dp;
+    char *fullpath = NULL;  /* malloc if target is found */
+    int requirelen = strlen(dirpath) + strlen(basename) + 1;
+    if ((dir = opendir(dirpath)) != NULL) {
+        while((dp = readdir(dir)) != NULL) {
+            if (strcmp(dp->d_name, basename) == 0) {
+                /* found */
+                fullpath = calloc(sizeof(char), requirelen);
+                sprintf(fullpath, "%s/%s", dirpath, dp->d_name);
+                break;
+            }
+        }
+        closedir(dir);
+    }
+    return fullpath;
+}
+
+char *search_binary_path(char *cmd)
+{
+    char *path_env_str;
+    char *err_msg = NULL;
+    char *searched_path;
+
+    char current_search_dir[1024];
+    int i;
+    char *p;
+    
+    /* check if it is relative path from current directory */
+    if (*(cmd + 0) == '.' && *(cmd + 1) == '/') {
+        searched_path = calloc(sizeof(char), strlen(cmd) + 1);
+        strcpy(searched_path, cmd);
+        err_msg = "relative pat";
+        goto found;
+    }
+    if (strchr(cmd, '/') != NULL) {
+        /* slash containing => denote relative path */
+        searched_path = calloc(sizeof(char), strlen(cmd) + 1);
+        strcpy(searched_path, cmd);
+        err_msg = "containing /";
+        goto found;
+    }
+
+    /* search by environt variable PATH */
+    path_env_str = getenv("PATH");
+    if (path_env_str == NULL) 
+        err_msg = "getenv() returned NULL to get PATH";
+
+    i = 0; 
+    p = path_env_str;
+    memset(current_search_dir, 0x00, sizeof(current_search_dir));
+    do {
+        if ( *p == ':' || *p == '\0' ) {
+            current_search_dir[i] = '\0';
+            searched_path = lookup_file(current_search_dir, cmd);
+            if (searched_path != NULL) {
+                err_msg = "Found";
+                goto found;
+            } else {
+                i = 0;
+            }
+        } else {
+            current_search_dir[i] = *p;
+            i++;
+        }
+        p++;
+    } while( *p != '\0' );
+    if (searched_path == NULL) {
+        err_msg = "not found in environment path";
+    }
+found:
+    printf("%s\n", searched_path);
+    return searched_path;
+error:
+    return NULL;
+}
+
 void parse_opt(int argc, char **argv, struct execute_context *exec_ctx)
 {
     int i;
     int j;
     int optdict_index;
+    char *p;
     /* initializing and store the arguments */
     exec_ctx->argc = (unsigned int)argc;
     exec_ctx->argv = argv;
     exec_ctx->opt_flags = 0x00;
+    exec_ctx->fullpath = NULL;
 
     /* parse options for this program */
     for(i = 1; i <= exec_ctx->argc; i++) {
@@ -438,18 +517,24 @@ void parse_opt(int argc, char **argv, struct execute_context *exec_ctx)
         exec_ctx->passing_args[j] = exec_ctx->argv[i];
         debug_printf(stderr, "passing: %s\n", exec_ctx->argv[i]);
     }
+    p = search_binary_path(exec_ctx->passing_args[0]);
+    if (p != NULL) {
+        exec_ctx->passing_args[0] = p;
+    }
     return;
 }
 
-
+/* ENTRY POINT */
 int main(int argc, char **argv)
 {
 	struct execute_context exec_ctx;
+	pid_t c_pid;
         debug_printf(stderr,"start!\n");
         parse_opt(argc, argv, &exec_ctx);
-	pid_t c_pid;
+	fprintf(stderr, "[Tracer] Target program is %s\n", exec_ctx.passing_args[0]);
 
 	c_pid = fork();
+        exec_ctx.target_pid = c_pid;
 	if (c_pid == -1) {
 		return -1;
 	} else if(c_pid == 0) {

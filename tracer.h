@@ -8,6 +8,8 @@ struct execute_context {
 
         char **passing_args;
         int passing_args_count;
+        pid_t target_pid;
+        char **fullpath;
 };
 
 struct option {
@@ -19,5 +21,12 @@ struct option {
 
 #define OPT_UNKNOWN		0x0000
 #define OPT_VERBOSE		0x0001
+
+
+#ifdef debug_mode
+#	define debug_printf(...)	printf("[[DebugPrint]]   ");printf(__VA_ARGS__)
+#else
+#	define debug_printf(...)
+#endif
 
 #endif
