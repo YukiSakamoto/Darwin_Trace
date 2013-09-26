@@ -1,9 +1,9 @@
 # Darwin-Trace
 
-### これはなに？
-MacOS X darwinの上でバイナリファイルの関数呼び出しとリターンをフックして記録するトレーサです。
+### What's this?
+This is a tracer that hooks and record function-calling on Mac OS X Darwin.
 
-たとえば
+This is an example.
 
 
 
@@ -23,7 +23,7 @@ MacOS X darwinの上でバイナリファイルの関数呼び出しとリター
     	return 0;
     }
     
-というソースコードに対して、コンパイルしたものを指定して実行すると
+Compiling this code, and execute this tracer for the binary, you would get following outputs.
 
 	$> sudo ./tracer testcode/fibonacci
 	Password:
@@ -43,40 +43,30 @@ MacOS X darwinの上でバイナリファイルの関数呼び出しとリター
 	[Tracer] <=== [ _main (at 0x100000efd)]
 	[Tracer]  Process :73550 Terminated
 	
-という出力が得られます。
 
-### なぜこれをつくったか？
-普段MacOSXの上で開発しているのですが、他の人の書かれたコードを読むとき、関数呼び出しがどういう流れで行われているかが分からない状態だと、ソースコードをひたすらgrepして上下に移動することになります。かといって毎回デバッガを起動して全部の関数にブレークポイントを貼って、トラップしては進めて、としてメモって行くのもめんどくさいので、それの指針になるものが欲しいということで作成しました。
+### Mechanism
+First of all, this program fork the process, disable ASLR (Address Space Layout Randomization) and load the target binary for child process.
+Next, before running the child process, this program disassembles the target binary and set breakpoints on each functions' entrance and exit address.
+Then, this program will enable to start the child process.
 
-また、Linuxだとtracef（hogetrace?）というツールを書かれた方がいらっしゃるのですが、それをMacにかなりの劣化版として移植したものがこのツールです。
-
-とりあえずはそれにならって、デバッグ情報をわざわざつけてビルドしなくても、シンボルのストリップさえ受けていなければ、関数のトレースを行うことが（少なくとも理屈の上では）可能となっています。
-
-仕組みとしては、まずバイナリを読み込んで、シンボルテーブルを探し、各関数の先頭アドレスを取得してそのアドレスに対してブレークポイントを貼っています。また、MacOSXの10.5以降ではバイナリの各セクションをロード時にランダムなアドレス空間にロードし、他セクションを指定するアドレスに関してはリロケーションすることによって、メモリ上にバイナリを展開して実行するようになっています。したがって、アタッチする側からも各関数の実行時における実際のアドレスはわからないので、それらを無効化して実行する処理もしています。
-
-各関数の先頭アドレスを取得したら、今度はテキストセクションの各関数を逆アセンブルしてret命令にもブレークポイントを指定しています。
-以上のブレークポイントの注入処理がすべて完了したら実際にプログラムをローンチし、ブレークポイントでトラップするたびにトラップ時のプログラムカウンタの値からどの関数のエントリ／リターンかを判断し、記録しています。
 
 ### Build
 * requirements
-	* udis86 (Intel命令セットの逆アセンブルライブラリ)
-	* MacOS X(っていうかMach-oフォーマットのOS /usr/include/mach-oのディレクトリがないとだめ。Linuxではバイナリフォーマットとかなにから何まで違うので無理です)
+	* udis86 (For disassenble x86_64 binary)
+	* Mac OS X(You cannot compile and execute on Linux)
 
 * build
 
+After install these requirements, 
+
 		> ./waf configure
 		> ./waf build
+
+If the build is completed, a binary file named 'tracer' would be generated.
 	
-	をたたくだけです。成功すればtracerというバイナリファイルが出力されるはず。
 ### execution
-* Mac OS X は他のプロセスに対してポートを開くときにそのプロセスの実行ファイルが署名されている必要があります(Max OS X Lion以降でgdbを起動させたときにパスワードを求められるのはそのため)。このプログラムは署名をつけたりなどはしていないので、sudoによって管理者特権で実行しないと走りません。
+* Mac OS X requires root permission or a signature to open ports to other process. So, please execute like following:
 
 		sudo ./tracer XXX(target_process)
 
 	
-### この先やること
-* C++シンボルのデマングル。今のところこのソースコードはすべてCで書いているのでデマングル用のフィルタも、自分でCでかきたい。
-* プロセスのforkとかpthreadへの対応。今はシングルプロセス／シングルスレッドのみ
-* ライブラリ関数の呼び出し（stubセクションのjmp命令をフックするのが一番現実的。Linuxでいうpltの呼び出し）をフックする。
-* 時間計測？っつかプロファイラーっぽくする。このトレーサを先に見てもらった人のうちの100％（２人中２人w）に言われた。
-* 内部のデータ管理構造をもう少し早いものにする。とりあえずはハッシュテーブルの実装で行くか。
