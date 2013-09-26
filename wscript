@@ -12,7 +12,7 @@ def options(opt):
     opt.add_option('--enable_debug', action='store_true', default=False, help='debug')
     opt.load('compiler_c')
 
-header_files = ['functable.h', 'memory_op.h']
+header_files = ['tracer.h', 'functable.h', 'memory_op.h']
 c_files = ['functable.c', 'memory_op.c', 'attach.c']
 
 requirements = [ 'mach-o/loader.h', 'mach/mach.h', 'spawn.h' ]

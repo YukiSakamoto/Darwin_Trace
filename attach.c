@@ -1,16 +1,21 @@
+/* Standard Libraries */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+/* UNIX System calls related */
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/ptrace.h>
 #include <errno.h>
 
+/* Mach Port related */
 #include <mach/mach.h>
 #include <spawn.h>
 #include <udis86.h>
 
+/* This program's headers */
+#include "tracer.h"
 #include "memory_op.h"
 #include "functable.h"
 
@@ -37,10 +42,18 @@ void *chk_malloc(size_t size)
 	return p;
 }
 
-void target_proc(char **args)
+void chk_free(void *p)
+{
+	if (p != NULL) {
+		free(p);
+	}
+}
+
+void target_proc(struct execute_context *ctx)
 {
 	int ret;
 
+        char **args = ctx->passing_args;
 	short ps_flags = 0;
 	pid_t pid;
 	posix_spawn_file_actions_t actions;
@@ -152,7 +165,7 @@ int is_exclude_func(struct symbol_info *psym) {
 
 	static char exclude_funcnames[][64] = {
 		"__mh_execute_header",
-		"start",
+		/*"start",*/
 		"",
 	};
 	
@@ -238,13 +251,14 @@ int symbolinfo_comp(const void *a, const void *b)
 }
 
 
-void debugger_proc(pid_t child_proc, char **args)
+void debugger_proc(pid_t child_proc, struct execute_context *ctx)
 {
 	/* about child process */
 	int child_stat;
 	kern_return_t kret;
 	mach_port_t task;
 	int wait_cnt = 0;
+        char **args = ctx->passing_args;
 
 	/* related analysys of target process binary. */
 	int i;
@@ -373,31 +387,77 @@ void debugger_proc(pid_t child_proc, char **args)
 	}
 }
 
-char **parse_args(int argc, char **argv)
+
+const 
+struct option options[] = {
+	{	"-v",           OPT_VERBOSE, 0	},
+	{	"--verbose",    OPT_VERBOSE, 0	},
+	{	"UNKNOWN",	OPT_UNKNOWN, 0	},
+};
+
+
+static 
+unsigned int lookup_optnum(char *str)
 {
-	int i;
-	char **args = chk_malloc(sizeof(char*) * argc);
-	memset(args, 0x00, sizeof(char*) * argc);
-	for(i = 0; i < argc; i++) {
-		args[i] = argv[i + 1];
-	}
-	return args;
+    int i;
+    for(i = 0; i < options[i].opt_num != OPT_UNKNOWN; i++) {
+        if (strcmp(options[i].opt_str, str) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void parse_opt(int argc, char **argv, struct execute_context *exec_ctx)
+{
+    int i;
+    int j;
+    int optdict_index;
+    /* initializing and store the arguments */
+    exec_ctx->argc = (unsigned int)argc;
+    exec_ctx->argv = argv;
+    exec_ctx->opt_flags = 0x00;
+
+    /* parse options for this program */
+    for(i = 1; i <= exec_ctx->argc; i++) {
+        if ( (*exec_ctx->argv[i]) == '-') {
+            optdict_index = lookup_optnum(exec_ctx->argv[i]);
+            if (optdict_index != -1) {
+                debug_printf(stderr, "argument for this program: %s\n", exec_ctx->argv[i]);
+                exec_ctx->opt_flags |= options[optdict_index].opt_num;
+            }
+        } else {
+            break;
+        }
+    }
+    /* copy options for forked (target) program */
+    exec_ctx->passing_args_count = exec_ctx->argc - i;
+    exec_ctx->passing_args = chk_malloc( sizeof(char*) * (exec_ctx->passing_args_count + 1) );
+    memset(exec_ctx->passing_args, 0x00, sizeof(char*) * (exec_ctx->passing_args_count + 1) );
+    for(j = 0 ; i <= exec_ctx->passing_args_count; i++, j++) {
+        exec_ctx->passing_args[j] = exec_ctx->argv[i];
+        debug_printf(stderr, "passing: %s\n", exec_ctx->argv[i]);
+    }
+    return;
 }
 
 
 int main(int argc, char **argv)
 {
-	char **args = parse_args(argc, argv);
+	struct execute_context exec_ctx;
+        debug_printf(stderr,"start!\n");
+        parse_opt(argc, argv, &exec_ctx);
 	pid_t c_pid;
 
 	c_pid = fork();
 	if (c_pid == -1) {
 		return -1;
 	} else if(c_pid == 0) {
-		target_proc(args);
+		target_proc(&exec_ctx);
 	} else {
-		debugger_proc(c_pid, args);
+		debugger_proc(c_pid, &exec_ctx);
 	}
+	chk_free(exec_ctx.passing_args);
 	return 0;
 }
 
