@@ -111,6 +111,7 @@ int set_breakpoint(mach_port_t task, vm_address_t target_addr, struct breakpoint
 		read_write_process_memory(task, target_addr, &(p->orig_inst_code), NULL, sizeof(unsigned char));
 	}
 
+
 	/* set int3(0xcc) instruction code */
 	if (read_write_process_memory(task, target_addr, NULL, &breakpoint_code, sizeof(unsigned char)) ) {
 		p->valid = 1;
@@ -158,7 +159,7 @@ int is_exclude_func(struct symbol_info *psym) {
 
 	static char exclude_funcnames[][64] = {
 		"__mh_execute_header",
-		/*"start",*/
+		"start",
 		"",
 	};
 	
@@ -201,12 +202,13 @@ char *lookup_function(vm_address_t addr, struct symbol_info *psymbol_table, size
 
 
 static
-int breakpoint_handler(uint64_t addr, struct symbol_info *psymbol_table, size_t nsym, int stack_depth)
+int breakpoint_handler(mach_port_t task, uint64_t addr, struct symbol_info *psymbol_table, size_t nsym, int stack_depth)
 {
 	int i;
 	int output = 1;
 	int type;
 	const char *fname = lookup_function(addr, psymbol_table, nsym, &type);
+        uint64_t rax;
 	
 	/* output to stderr */
 	if (output) {
@@ -224,7 +226,12 @@ int breakpoint_handler(uint64_t addr, struct symbol_info *psymbol_table, size_t 
 		stack_depth++;
 	}
 	if (output) {
+	        read_process_register_64(task, RAX, &rax);
+                if (type == 1) {
 		fprintf(stderr, "%s [ %s (at 0x%llx)]\n", type == 1 ? "===>" : type == 2 ? "<===" : "    " , fname, addr);
+                } else if (type == 2) {
+		fprintf(stderr, "%s [ %s (at 0x%llx, rax = 0x%llx)]\n", type == 1 ? "===>" : type == 2 ? "<===" : "    " , fname, addr, rax);
+                }
 	}
 	return stack_depth;
 }
@@ -312,7 +319,7 @@ void debugger_proc(pid_t child_proc, struct execute_context *ctx)
 			qsort(psymbol_table, nsym, sizeof(struct symbol_info), symbolinfo_comp);
 
 			/* XXX for debugging  */
-			/*display_symbol_table(psymbol_table, nsym); */
+			/*display_symbol_table(psymbol_table, nsym);  */
 
 			/* code analysys */
 			map_binary(args[0], &bininfo);
@@ -334,7 +341,12 @@ void debugger_proc(pid_t child_proc, struct execute_context *ctx)
 				} else {
 					func_end_addr = text_section_vmaddr + text_section_size + 1;
 				}
-				debug_printf("%s: %llx --> %llx\n", psymbol_table[i].name, func_start_addr, func_end_addr);
+				printf("%s: 0x%llx --> 0x%llx\n", psymbol_table[i].name, func_start_addr, func_end_addr);
+                                /*
+                                if (strstr(psymbol_table[i].name, "main") != NULL) {
+                                    __asm__("int3");
+                                }
+                                */
 				psymbol_table[i].ret_address_num = 0;
 
 				previous_eip = ud_obj.pc + text_section_vmaddr;
@@ -350,9 +362,12 @@ void debugger_proc(pid_t child_proc, struct execute_context *ctx)
 					}
 					previous_eip = ud_obj.pc + text_section_vmaddr;
 				}
+                                /*
 				if (0 < psymbol_table[i].ret_address_num) {
 					set_breakpoint(task, psymbol_table[i].nlist64.n_value, &top);
 				}
+                                */
+			        set_breakpoint(task, psymbol_table[i].nlist64.n_value, &top);
 			}
 			debug_printf("break point insert\n");
 			unmap_binary(&bininfo);
@@ -368,7 +383,7 @@ void debugger_proc(pid_t child_proc, struct execute_context *ctx)
 			uint64_t rip;
 			read_process_register_64(task, RIP, &rip);
 			if (is_breakpoint(rip - 1, &top) == 1) {
-				stack_depth = breakpoint_handler(rip - 1, psymbol_table, nsym, stack_depth);
+				stack_depth = breakpoint_handler(task, rip - 1, psymbol_table, nsym, stack_depth);
 				write_process_register_64(task, RIP, RELATIVE_VAL, -1);
 				disable_breakpoint(task, rip - 1, &top);
 				ptrace(PT_STEP, child_proc, (caddr_t)1, 0);
