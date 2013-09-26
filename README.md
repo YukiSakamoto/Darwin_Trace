@@ -1,7 +1,7 @@
 # Darwin-Trace
 
 ### What's this?
-This is a tracer that hooks and record function-calling on Mac OS X Darwin.
+This is a tracer that hooks and tracks function-calling and returning on Mac OS X Darwin.
 
 This is an example.
 
@@ -23,7 +23,7 @@ This is an example.
     	return 0;
     }
     
-Compiling this code, and execute this tracer for the binary, you would get following outputs.
+Compiling this code, and execute this tracer passed above program's name as an argument, you would get following outputs.
 
 	$> sudo ./tracer testcode/fibonacci
 	Password:
@@ -45,28 +45,29 @@ Compiling this code, and execute this tracer for the binary, you would get follo
 	
 
 ### Mechanism
-First of all, this program fork the process, disable ASLR (Address Space Layout Randomization) and load the target binary for child process.
-Next, before running the child process, this program disassembles the target binary and set breakpoints on each functions' entrance and exit address.
-Then, this program will enable to start the child process.
+
+	1. Fork the process
+	2. Disable ASLR(short of Address Space Layout Randomization) and load the target binary for child process.
+	3. Before running the child process, parent program disassemble the target binary, and set brekpoints on each functions' entrypoint and exit points.
+	4. Run.
 
 
 ### Build
 * requirements
-	* udis86 (For disassenble x86_64 binary)
+	* udis86 (For disassenble)
 	* Mac OS X(You cannot compile and execute on Linux)
 
 * build
 
-After install these requirements, 
-
 		> ./waf configure
 		> ./waf build
+		> ./waf install		( <- this is option )
 
 If the build is completed, a binary file named 'tracer' would be generated.
 	
 ### execution
 * Mac OS X requires root permission or a signature to open ports to other process. So, please execute like following:
 
-		sudo ./tracer XXX(target_process)
+		sudo ./tracer XXX(target_program)
 
 	
